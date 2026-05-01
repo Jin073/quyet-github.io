@@ -26,8 +26,20 @@ import { clearState, loadState, saveState } from '../lib/storage.js';
 import { createDemoState } from '../lib/sampleData.js';
 import { filterTransactions } from '../lib/finance.js';
 import { uid } from '../lib/formatters.js';
-import { fetchGoogleUser, logoutGoogle, readGoogleTokenFromRedirect, redirectToGoogleOAuth } from '../lib/authApi.js';
-import { exportStateToExcel, importStateFromExcel, importStateFromExcelBuffer } from '../lib/excel.js';
+import {
+  fetchGoogleUser,
+  getGoogleAccessToken,
+  logoutGoogle,
+  readGoogleTokenFromRedirect,
+  redirectToGoogleOAuth,
+} from '../lib/authApi.js';
+import {
+  exportStateToExcel,
+  exportStateToExcelBuffer,
+  exportStateToSpreadsheetRows,
+  importStateFromExcel,
+  importStateFromExcelBuffer,
+} from '../lib/excel.js';
 
 const nav = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Core' },
@@ -137,7 +149,17 @@ export function App() {
     if (!file) return;
     try {
       const imported = await importStateFromExcel(file);
-      setData({ ...INITIAL_STATE, ...imported, settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) } });
+      setData({
+        ...INITIAL_STATE,
+        ...imported,
+        importSource: {
+          method: 'file',
+          link: file.name || '',
+          fileId: '',
+          importedAt: new Date().toISOString(),
+        },
+        settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) },
+      });
       context.notify('Excel imported');
     } catch (error) {
       context.notify(`Import failed: ${error.message}`, 'error');
@@ -145,14 +167,14 @@ export function App() {
   }
 
   async function importDataFromUrl(url) {
-    const importUrl = normalizeExcelImportUrl(url);
-    if (!importUrl) {
+    const importSource = normalizeExcelImportUrl(url);
+    if (!importSource) {
       context.notify('Enter an Excel file link', 'error');
       return;
     }
 
     try {
-      const response = await fetch(importUrl);
+      const response = await fetch(importSource.downloadUrl);
       if (!response.ok) throw new Error(`Download failed (${response.status})`);
 
       const contentType = response.headers.get('content-type') || '';
@@ -161,10 +183,40 @@ export function App() {
       }
 
       const imported = importStateFromExcelBuffer(await response.arrayBuffer());
-      setData({ ...INITIAL_STATE, ...imported, settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) } });
+      setData({
+        ...INITIAL_STATE,
+        ...imported,
+        importSource: {
+          method: 'link',
+          link: importSource.originalUrl,
+          downloadUrl: importSource.downloadUrl,
+          provider: importSource.provider,
+          fileId: importSource.fileId || '',
+          importedAt: new Date().toISOString(),
+        },
+        settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) },
+      });
       context.notify('Excel imported from link');
     } catch (error) {
       context.notify(`Import failed: ${error.message}`, 'error');
+    }
+  }
+
+  async function saveImportedLink() {
+    if (data.importSource?.method !== 'link') {
+      context.notify('Import from a link before saving back', 'error');
+      return;
+    }
+
+    try {
+      await overwriteImportedLink(data);
+      setData((current) => ({
+        ...current,
+        importSource: { ...current.importSource, savedAt: new Date().toISOString() },
+      }));
+      context.notify('Saved to imported link');
+    } catch (error) {
+      context.notify(`Save failed: ${error.message}`, 'error');
     }
   }
 
@@ -202,7 +254,14 @@ export function App() {
             onAdd={() => setModal({ kind: 'transaction' })}
           />
           <main className="content">
-            {view === 'dashboard' && <DashboardView {...context} goTo={setView} onAdd={() => setModal({ kind: 'transaction' })} />}
+            {view === 'dashboard' && (
+              <DashboardView
+                {...context}
+                goTo={setView}
+                onAdd={() => setModal({ kind: 'transaction' })}
+                onSaveImportSource={saveImportedLink}
+              />
+            )}
             {view === 'transactions' && (
               <TransactionsView
                 {...context}
@@ -321,7 +380,7 @@ export function App() {
 
 function normalizeExcelImportUrl(value) {
   const rawUrl = value.trim();
-  if (!rawUrl) return '';
+  if (!rawUrl) return null;
 
   try {
     const url = new URL(rawUrl);
@@ -329,16 +388,199 @@ function normalizeExcelImportUrl(value) {
     if (url.hostname === 'drive.google.com') {
       const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
       const id = fileMatch?.[1] || url.searchParams.get('id');
-      if (id) return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
+      if (id) {
+        return {
+          originalUrl: rawUrl,
+          downloadUrl: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`,
+          provider: 'google_drive',
+          fileId: id,
+        };
+      }
     }
 
     if (url.hostname === 'docs.google.com' && url.pathname.includes('/spreadsheets/d/')) {
       const sheetMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
-      if (sheetMatch?.[1]) return `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=xlsx`;
+      if (sheetMatch?.[1]) {
+        return {
+          originalUrl: rawUrl,
+          downloadUrl: `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=xlsx`,
+          provider: 'google_sheets',
+          fileId: sheetMatch[1],
+        };
+      }
     }
 
-    return url.toString();
+    return {
+      originalUrl: rawUrl,
+      downloadUrl: url.toString(),
+      provider: 'url',
+      fileId: '',
+    };
   } catch {
-    return '';
+    return null;
+  }
+}
+
+async function overwriteImportedLink(state) {
+  const source = state.importSource;
+
+  if (source.provider === 'google_sheets') {
+    await overwriteGoogleSpreadsheet(source.fileId, state);
+    return;
+  }
+
+  const workbookBytes = exportStateToExcelBuffer(state);
+
+  if (source.provider === 'google_drive') {
+    await overwriteGoogleDriveFile(source.fileId, workbookBytes);
+    return;
+  }
+
+  await overwriteUrl(source.link, workbookBytes);
+}
+
+async function overwriteGoogleSpreadsheet(spreadsheetId, state) {
+  const token = getGoogleAccessToken();
+  if (!token) throw new Error('Sign in with Google before saving to Sheets');
+
+  const sheets = exportStateToSpreadsheetRows(state);
+  const metadataResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties.title`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!metadataResponse.ok) {
+    await throwGoogleApiError(metadataResponse, 'Google Sheets metadata');
+  }
+
+  const metadata = await metadataResponse.json();
+  const existingTitles = new Set((metadata.sheets || []).map((sheet) => sheet.properties?.title).filter(Boolean));
+  const missingSheets = sheets.filter((sheet) => !existingTitles.has(sheet.name));
+
+  if (missingSheets.length > 0) {
+    const addResponse = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: missingSheets.map((sheet) => ({ addSheet: { properties: { title: sheet.name } } })),
+        }),
+      },
+    );
+
+    if (!addResponse.ok) {
+      await throwGoogleApiError(addResponse, 'Google Sheets add sheet');
+    }
+  }
+
+  const clearResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchClear`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ranges: sheets.map((sheet) => quoteSheetRange(sheet.name)),
+      }),
+    },
+  );
+
+  if (!clearResponse.ok) {
+    await throwGoogleApiError(clearResponse, 'Google Sheets clear');
+  }
+
+  const updateResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        valueInputOption: 'RAW',
+        data: sheets.map((sheet) => ({
+          range: `${quoteSheetName(sheet.name)}!A1`,
+          values: sheet.values,
+        })),
+      }),
+    },
+  );
+
+  if (!updateResponse.ok) {
+    await throwGoogleApiError(updateResponse, 'Google Sheets update');
+  }
+}
+
+async function throwGoogleApiError(response, action) {
+  let detail = '';
+
+  try {
+    const payload = await response.json();
+    detail = payload.error?.message || payload.error_description || '';
+  } catch {
+    detail = await response.text().catch(() => '');
+  }
+
+  if (response.status === 403) {
+    throw new Error(
+      `${action} failed: Google denied access. Reconnect Google and make sure the account can edit this Sheet and the backend OAuth includes the spreadsheets scope.`,
+    );
+  }
+
+  if (response.status === 401) {
+    throw new Error(`${action} failed: Google session expired. Sign in with Google again.`);
+  }
+
+  throw new Error(`${action} failed (${response.status})${detail ? `: ${detail}` : ''}`);
+}
+
+function quoteSheetName(name) {
+  return `'${name.replaceAll("'", "''")}'`;
+}
+
+function quoteSheetRange(name) {
+  return quoteSheetName(name);
+}
+
+async function overwriteGoogleDriveFile(fileId, workbookBytes) {
+  const token = getGoogleAccessToken();
+  if (!token) throw new Error('Sign in with Google before saving to Drive');
+
+  const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    },
+    body: workbookBytes,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Drive rejected the overwrite (${response.status})`);
+  }
+}
+
+async function overwriteUrl(url, workbookBytes) {
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    },
+    body: workbookBytes,
+  });
+
+  if (!response.ok) {
+    throw new Error(`The link does not allow overwrite (${response.status})`);
   }
 }

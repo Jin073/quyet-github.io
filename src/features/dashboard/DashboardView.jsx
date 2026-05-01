@@ -1,4 +1,4 @@
-import { Building2, DollarSign, PiggyBank, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Building2, DollarSign, Link, PiggyBank, Save, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { BarChart } from '../../components/charts/BarChart.jsx';
 import { DonutChart } from '../../components/charts/DonutChart.jsx';
 import { DataTable } from '../../components/ui/DataTable.jsx';
@@ -8,15 +8,41 @@ import { assetTotals, categoryBreakdown, investmentTotals, monthlyTotals, transa
 import { formatDate, formatMoney } from '../../lib/formatters.js';
 import { TransactionCells } from '../transactions/TransactionCells.jsx';
 
-export function DashboardView({ data, currency, goTo }) {
+export function DashboardView({ data, currency, goTo, onSaveImportSource }) {
   const totals = transactionTotals(data.transactions);
   const assets = assetTotals(data.assets);
   const investments = investmentTotals(data.investments);
   const savings = totals.income > 0 ? Math.max(0, ((totals.income - totals.expense) / totals.income) * 100) : 0;
   const recent = [...data.transactions].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).slice(0, 5);
+  const importSource = data.importSource || { method: 'demo', link: '' };
+  const canSaveToLink = importSource.method === 'link';
 
   return (
     <>
+      <Panel
+        className="import-source-panel"
+        title="Data Source"
+        subtitle={formatImportSource(importSource)}
+        action={
+          <button className="btn btn-primary btn-sm" disabled={!canSaveToLink} onClick={onSaveImportSource}>
+            <Save size={14} />
+            Save
+          </button>
+        }
+      >
+        {canSaveToLink ? (
+          <a className="source-link" href={importSource.link} target="_blank" rel="noreferrer">
+            <Link size={14} />
+            <span>{importSource.link}</span>
+          </a>
+        ) : (
+          <div className="source-link muted">
+            <Link size={14} />
+            <span>{importSource.link || 'Local demo data'}</span>
+          </div>
+        )}
+      </Panel>
+
       <div className="summary-grid">
         <StatCard label="Total Income" value={formatMoney(totals.income, currency)} meta="All-time inflows" icon={TrendingUp} tone="income" />
         <StatCard label="Total Expenses" value={formatMoney(totals.expense, currency)} meta="All-time outflows" icon={TrendingDown} tone="expense" />
@@ -71,4 +97,10 @@ export function DashboardView({ data, currency, goTo }) {
       </Panel>
     </>
   );
+}
+
+function formatImportSource(source) {
+  if (source.method === 'link') return `Imported by link${source.savedAt ? ' - saved' : ''}`;
+  if (source.method === 'file') return 'Imported from local Excel file';
+  return 'Demo/local browser data';
 }

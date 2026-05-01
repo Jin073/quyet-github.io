@@ -21,6 +21,29 @@ const HEADERS = {
 };
 
 export function exportStateToExcel(state) {
+  const workbook = createStateWorkbook(state);
+  XLSX.writeFile(workbook, `finova-backup-${todayISO()}.xlsx`);
+}
+
+export function exportStateToExcelBuffer(state) {
+  const workbook = createStateWorkbook(state);
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+}
+
+export function exportStateToSpreadsheetRows(state) {
+  const workbookState = normalizeIdsForWorkbook(state);
+
+  return [
+    createSheetRows(SHEETS.transactions, HEADERS.transactions, workbookState.transactions),
+    createSheetRows(SHEETS.categories, HEADERS.categories, workbookState.categories),
+    createSheetRows(SHEETS.assets, HEADERS.assets, workbookState.assets),
+    createSheetRows(SHEETS.investments, HEADERS.investments, workbookState.investments),
+    createSheetRows(SHEETS.snapshots, HEADERS.snapshots, workbookState.snapshots),
+    createSheetRows(SHEETS.settings, HEADERS.settings, [workbookState.settings]),
+  ];
+}
+
+function createStateWorkbook(state) {
   const workbookState = normalizeIdsForWorkbook(state);
   const workbook = XLSX.utils.book_new();
 
@@ -31,7 +54,7 @@ export function exportStateToExcel(state) {
   appendSheet(workbook, SHEETS.snapshots, HEADERS.snapshots, workbookState.snapshots);
   appendSheet(workbook, SHEETS.settings, HEADERS.settings, [workbookState.settings]);
 
-  XLSX.writeFile(workbook, `finova-backup-${todayISO()}.xlsx`);
+  return workbook;
 }
 
 function normalizeIdsForWorkbook(state) {
@@ -82,6 +105,16 @@ function appendSheet(workbook, name, headers, rows) {
   const worksheet = XLSX.utils.json_to_sheet(sheetRows, { header: headers });
   worksheet['!cols'] = headers.map((header) => ({ wch: Math.max(12, header.length + 4) }));
   XLSX.utils.book_append_sheet(workbook, worksheet, name);
+}
+
+function createSheetRows(name, headers, rows) {
+  return {
+    name,
+    values: [
+      headers,
+      ...rows.map((row) => headers.map((header) => row[header] ?? '')),
+    ],
+  };
 }
 
 function readSheet(workbook, name) {

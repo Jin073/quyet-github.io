@@ -1,10 +1,19 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const GOOGLE_ACCESS_TOKEN_KEY = 'finova_google_access_token';
+const GOOGLE_OAUTH_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive.file',
+];
 
 export function redirectToGoogleOAuth() {
   const returnTo = window.location.href;
   const url = new URL('/auth/google/login', API_BASE_URL);
   url.searchParams.set('return_to', returnTo);
+  url.searchParams.set('scope', GOOGLE_OAUTH_SCOPES.join(' '));
+  url.searchParams.set('prompt', 'consent');
   window.location.assign(url.toString());
 }
 

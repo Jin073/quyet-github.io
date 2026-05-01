@@ -9,6 +9,7 @@ export function loadState() {
     return {
       ...createDemoState(),
       ...data,
+      importSource: { method: 'demo', link: '', fileId: '', importedAt: '', ...(data.importSource || {}) },
       settings: { theme: 'light', accent: 'indigo', currency: '$', ...(data.settings || {}) },
     };
   } catch {
@@ -23,6 +24,7 @@ export function saveState(state) {
     assets: state.assets,
     investments: state.investments,
     snapshots: state.snapshots,
+    importSource: state.importSource,
     settings: state.settings,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));

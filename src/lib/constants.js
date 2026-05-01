@@ -48,5 +48,6 @@ export const INITIAL_STATE = {
   assets: [],
   investments: [],
   snapshots: [],
+  importSource: { method: 'demo', link: '', fileId: '', importedAt: '' },
   settings: { theme: 'light', accent: 'indigo', currency: '$' },
 };
