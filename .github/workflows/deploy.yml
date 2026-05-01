@@ -34,8 +34,6 @@ jobs:
 
       - name: Build
         run: npm run build
-        env:
-          VITE_API_URL: https://mochi-finance-api.onrender.com
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
