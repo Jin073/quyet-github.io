@@ -166,6 +166,9 @@ tr:last-child td { border-bottom: 0; }
 .setting-row:last-child { border-bottom: 0; }
 .setting-label { font-weight: 800; }
 .setting-desc { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.import-link-row { align-items: flex-start; }
+.import-link-form { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 1; min-width: 240px; }
+.import-link-input { width: min(360px, 100%); min-width: 180px; }
 .account-chip { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .account-avatar { width: 36px; height: 36px; border-radius: 999px; object-fit: cover; border: 1px solid var(--border); }
 .account-copy { display: grid; min-width: 0; line-height: 1.25; }
@@ -228,5 +231,7 @@ tr:last-child td { border-bottom: 0; }
   .search-box { display: none; }
   .topbar-right .btn span, .page-sub { display: none; }
   .form-row.two { grid-template-columns: 1fr; }
+  .import-link-row, .import-link-form { display: grid; justify-content: stretch; }
+  .import-link-input { width: 100%; }
   .stat-value { font-size: 23px; }
 }

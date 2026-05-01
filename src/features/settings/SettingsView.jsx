@@ -1,7 +1,10 @@
-import { Chrome } from 'lucide-react';
+import { useState } from 'react';
+import { Chrome, Link } from 'lucide-react';
 import { ACCENTS } from '../../lib/constants.js';
 
-export function SettingsView({ data, googleUser, onSettings, onGoogleOAuth, onGoogleLogout, onExport, onImport, onReset }) {
+export function SettingsView({ data, googleUser, onSettings, onGoogleOAuth, onGoogleLogout, onExport, onImport, onImportUrl, onReset }) {
+  const [importUrl, setImportUrl] = useState('');
+
   return (
     <div className="settings-grid">
       <section className="panel">
@@ -85,6 +88,31 @@ export function SettingsView({ data, googleUser, onSettings, onGoogleOAuth, onGo
             Import
             <input hidden type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(e) => onImport(e.target.files[0])} />
           </label>
+        </div>
+        <div className="setting-row import-link-row">
+          <div>
+            <div className="setting-label">Import from link</div>
+            <div className="setting-desc">Use a public .xlsx, .xls, Google Drive, or Google Sheets link</div>
+          </div>
+          <form
+            className="import-link-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onImportUrl(importUrl);
+            }}
+          >
+            <input
+              className="field import-link-input"
+              type="url"
+              placeholder="https://..."
+              value={importUrl}
+              onChange={(event) => setImportUrl(event.target.value)}
+            />
+            <button className="btn btn-ghost btn-sm" type="submit">
+              <Link size={14} />
+              Import
+            </button>
+          </form>
         </div>
         <div className="setting-row">
           <div>

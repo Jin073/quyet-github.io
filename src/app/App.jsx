@@ -27,7 +27,7 @@ import { createDemoState } from '../lib/sampleData.js';
 import { filterTransactions } from '../lib/finance.js';
 import { uid } from '../lib/formatters.js';
 import { fetchGoogleUser, logoutGoogle, readGoogleTokenFromRedirect, redirectToGoogleOAuth } from '../lib/authApi.js';
-import { exportStateToExcel, importStateFromExcel } from '../lib/excel.js';
+import { exportStateToExcel, importStateFromExcel, importStateFromExcelBuffer } from '../lib/excel.js';
 
 const nav = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Core' },
@@ -144,6 +144,30 @@ export function App() {
     }
   }
 
+  async function importDataFromUrl(url) {
+    const importUrl = normalizeExcelImportUrl(url);
+    if (!importUrl) {
+      context.notify('Enter an Excel file link', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(importUrl);
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        throw new Error('The link returned a web page, not an Excel file');
+      }
+
+      const imported = importStateFromExcelBuffer(await response.arrayBuffer());
+      setData({ ...INITIAL_STATE, ...imported, settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) } });
+      context.notify('Excel imported from link');
+    } catch (error) {
+      context.notify(`Import failed: ${error.message}`, 'error');
+    }
+  }
+
   const title = titles[view];
 
   return (
@@ -235,6 +259,7 @@ export function App() {
                 }}
                 onExport={exportData}
                 onImport={importData}
+                onImportUrl={importDataFromUrl}
                 onReset={() =>
                   confirmDelete('Reset all data?', 'All local data will be replaced with demo data.', () => {
                     clearState();
@@ -292,4 +317,28 @@ export function App() {
       <Toasts items={toasts} />
     </>
   );
+}
+
+function normalizeExcelImportUrl(value) {
+  const rawUrl = value.trim();
+  if (!rawUrl) return '';
+
+  try {
+    const url = new URL(rawUrl);
+
+    if (url.hostname === 'drive.google.com') {
+      const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+      const id = fileMatch?.[1] || url.searchParams.get('id');
+      if (id) return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
+    }
+
+    if (url.hostname === 'docs.google.com' && url.pathname.includes('/spreadsheets/d/')) {
+      const sheetMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+      if (sheetMatch?.[1]) return `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=xlsx`;
+    }
+
+    return url.toString();
+  } catch {
+    return '';
+  }
 }

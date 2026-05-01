@@ -52,6 +52,10 @@ function normalizeIdsForWorkbook(state) {
 
 export async function importStateFromExcel(file) {
   const buffer = await file.arrayBuffer();
+  return importStateFromExcelBuffer(buffer);
+}
+
+export function importStateFromExcelBuffer(buffer) {
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
 
   return {
