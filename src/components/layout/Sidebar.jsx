@@ -1,7 +1,8 @@
 import { Moon, Sun } from 'lucide-react';
 import { ACCENTS } from '../../lib/constants.js';
+import { AccountControl } from '../../features/settings/AccountControl.jsx';
 
-export function Sidebar({ nav, view, open, settings, onNavigate, onSettings }) {
+export function Sidebar({ nav, view, open, settings, googleUser, onNavigate, onSettings, onGoogleOAuth, onGoogleLogout }) {
   let lastGroup = '';
 
   return (
@@ -12,6 +13,9 @@ export function Sidebar({ nav, view, open, settings, onNavigate, onSettings }) {
           <div className="brand-name">Finova</div>
           <div className="brand-sub">Personal Finance</div>
         </div>
+      </div>
+      <div className="sidebar-account">
+        <AccountControl googleUser={googleUser} onGoogleOAuth={onGoogleOAuth} onGoogleLogout={onGoogleLogout} />
       </div>
 
       <nav className="nav">

@@ -27,20 +27,17 @@ import { createDemoState } from '../lib/sampleData.js';
 import { filterTransactions } from '../lib/finance.js';
 import { uid } from '../lib/formatters.js';
 import {
-  API_BASE_URL,
   fetchGoogleUser,
-  getGoogleAccessToken,
   logoutGoogle,
   readGoogleTokenFromRedirect,
   redirectToGoogleOAuth,
 } from '../lib/authApi.js';
 import {
-  exportStateToExcel,
-  exportStateToExcelBuffer,
-  exportStateToSpreadsheetRows,
-  importStateFromExcel,
-  importStateFromExcelBuffer,
-} from '../lib/excel.js';
+  exportDataToExcel,
+  importDataFromFile,
+  importDataFromUrl as importDataFromRemoteUrl,
+  overwriteImportedLink,
+} from '../features/settings/dataSync.js';
 
 const nav = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'Core' },
@@ -142,25 +139,14 @@ export function App() {
   }
 
   function exportData() {
-    exportStateToExcel(data);
+    exportDataToExcel(data);
     context.notify('Excel exported');
   }
 
   async function importData(file) {
     if (!file) return;
     try {
-      const imported = await importStateFromExcel(file);
-      setData({
-        ...INITIAL_STATE,
-        ...imported,
-        importSource: {
-          method: 'file',
-          link: file.name || '',
-          fileId: '',
-          importedAt: new Date().toISOString(),
-        },
-        settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) },
-      });
+      setData(await importDataFromFile(file));
       context.notify('Excel imported');
     } catch (error) {
       context.notify(`Import failed: ${error.message}`, 'error');
@@ -168,35 +154,8 @@ export function App() {
   }
 
   async function importDataFromUrl(url) {
-    const importSource = normalizeExcelImportUrl(url);
-    if (!importSource) {
-      context.notify('Enter an Excel file link', 'error');
-      return;
-    }
-
     try {
-      const response = await fetch(importSource.downloadUrl);
-      if (!response.ok) throw new Error(`Download failed (${response.status})`);
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/html')) {
-        throw new Error('The link returned a web page, not an Excel file');
-      }
-
-      const imported = importStateFromExcelBuffer(await response.arrayBuffer());
-      setData({
-        ...INITIAL_STATE,
-        ...imported,
-        importSource: {
-          method: 'link',
-          link: importSource.originalUrl,
-          downloadUrl: importSource.downloadUrl,
-          provider: importSource.provider,
-          fileId: importSource.fileId || '',
-          importedAt: new Date().toISOString(),
-        },
-        settings: { ...INITIAL_STATE.settings, ...(imported.settings || {}) },
-      });
+      setData(await importDataFromRemoteUrl(url));
       context.notify('Excel imported from link');
     } catch (error) {
       context.notify(`Import failed: ${error.message}`, 'error');
@@ -221,6 +180,19 @@ export function App() {
     }
   }
 
+  async function signOutGoogle() {
+    await logoutGoogle();
+    setGoogleUser(null);
+    context.notify('Signed out of Google');
+  }
+
+  function resetData() {
+    confirmDelete('Reset all data?', 'All local data will be replaced with demo data.', () => {
+      clearState();
+      setData(createDemoState());
+    });
+  }
+
   const title = titles[view];
 
   return (
@@ -231,11 +203,14 @@ export function App() {
           view={view}
           open={sidebarOpen}
           settings={data.settings}
+          googleUser={googleUser}
           onNavigate={(next) => {
             setView(next);
             setSidebarOpen(false);
           }}
           onSettings={(settings) => setData((current) => ({ ...current, settings: { ...current.settings, ...settings } }))}
+          onGoogleOAuth={redirectToGoogleOAuth}
+          onGoogleLogout={signOutGoogle}
         />
         <button
           aria-label="Close navigation"
@@ -260,6 +235,10 @@ export function App() {
                 {...context}
                 goTo={setView}
                 onAdd={() => setModal({ kind: 'transaction' })}
+                onExport={exportData}
+                onImport={importData}
+                onImportUrl={importDataFromUrl}
+                onReset={resetData}
                 onSaveImportSource={saveImportedLink}
               />
             )}
@@ -310,22 +289,6 @@ export function App() {
               <SettingsView
                 {...context}
                 onSettings={(settings) => setData((current) => ({ ...current, settings: { ...current.settings, ...settings } }))}
-                googleUser={googleUser}
-                onGoogleOAuth={redirectToGoogleOAuth}
-                onGoogleLogout={async () => {
-                  await logoutGoogle();
-                  setGoogleUser(null);
-                  context.notify('Signed out of Google');
-                }}
-                onExport={exportData}
-                onImport={importData}
-                onImportUrl={importDataFromUrl}
-                onReset={() =>
-                  confirmDelete('Reset all data?', 'All local data will be replaced with demo data.', () => {
-                    clearState();
-                    setData(createDemoState());
-                  })
-                }
               />
             )}
           </main>
@@ -377,140 +340,4 @@ export function App() {
       <Toasts items={toasts} />
     </>
   );
-}
-
-function normalizeExcelImportUrl(value) {
-  const rawUrl = value.trim();
-  if (!rawUrl) return null;
-
-  try {
-    const url = new URL(rawUrl);
-
-    if (url.hostname === 'drive.google.com') {
-      const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
-      const id = fileMatch?.[1] || url.searchParams.get('id');
-      if (id) {
-        return {
-          originalUrl: rawUrl,
-          downloadUrl: `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`,
-          provider: 'google_drive',
-          fileId: id,
-        };
-      }
-    }
-
-    if (url.hostname === 'docs.google.com' && url.pathname.includes('/spreadsheets/d/')) {
-      const sheetMatch = url.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
-      if (sheetMatch?.[1]) {
-        return {
-          originalUrl: rawUrl,
-          downloadUrl: `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=xlsx`,
-          provider: 'google_sheets',
-          fileId: sheetMatch[1],
-        };
-      }
-    }
-
-    return {
-      originalUrl: rawUrl,
-      downloadUrl: url.toString(),
-      provider: 'url',
-      fileId: '',
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function overwriteImportedLink(state) {
-  const source = state.importSource;
-  const token = getGoogleAccessToken();
-
-  if (source.provider === 'google_sheets') {
-    const metadataResponse = await fetch(
-      `${API_BASE_URL}/auth/google/drive/files/${encodeURIComponent(source.fileId)}/metadata`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-
-    const metadata = await metadataResponse.json().catch(() => ({}));
-
-    if (!metadataResponse.ok) {
-      throw new Error(
-        `Google Drive metadata failed (${metadataResponse.status})${metadata.detail ? `: ${metadata.detail}` : ''}`,
-      );
-    }
-
-    if (metadata.is_google_sheet) {
-      await overwriteGoogleSpreadsheet(source.fileId, state);
-      return;
-    }
-
-    if (metadata.is_excel_file) {
-      const workbookBytes = exportStateToExcelBuffer(state);
-      await overwriteGoogleDriveFile(source.fileId, workbookBytes);
-      return;
-    }
-
-    throw new Error(`Unsupported Google file type: ${metadata.mime_type}`);
-  }
-
-}
-
-async function overwriteGoogleSpreadsheet(spreadsheetId, state) {
-  const token = getGoogleAccessToken();
-  if (!token) throw new Error('Sign in with Google before saving to Sheets');
-
-  const sheets = exportStateToSpreadsheetRows(state);
-
-  const response = await fetch(apiUrl(`/auth/google/sheets/${encodeURIComponent(spreadsheetId)}/overwrite`), {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      value_input_option: 'RAW',
-      sheets,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend rejected Google Sheets overwrite (${response.status})`);
-  }
-}
-
-async function overwriteGoogleDriveFile(fileId, workbookBytes) {
-  const token = getGoogleAccessToken();
-  if (!token) throw new Error('Sign in with Google before saving to Drive');
-
-  const response = await fetch(apiUrl(`/auth/google/drive/files/${encodeURIComponent(fileId)}`), {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    },
-    body: workbookBytes,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend rejected Google Drive overwrite (${response.status})`);
-  }
-}
-
-function apiUrl(path) {
-  return new URL(path, API_BASE_URL).toString();
-}
-
-async function overwriteUrl(url, workbookBytes) {
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    },
-    body: workbookBytes,
-  });
-
-  if (!response.ok) {
-    throw new Error(`The link does not allow overwrite (${response.status})`);
-  }
 }

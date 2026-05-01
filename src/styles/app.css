@@ -23,7 +23,7 @@ button { border: 0; background: none; color: inherit; cursor: pointer; }
   flex-direction: column;
   z-index: 50;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 18px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 12px; }
 .brand-logo {
   width: 36px; height: 36px; border-radius: 10px;
   display: grid; place-items: center;
@@ -32,6 +32,12 @@ button { border: 0; background: none; color: inherit; cursor: pointer; }
 }
 .brand-name { font-weight: 700; font-size: 16px; }
 .brand-sub { font-size: 11px; color: var(--text-muted); }
+.sidebar-account { padding: 0 10px 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.sidebar-account .account-chip {
+  padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+}
+.sidebar-account .account-copy strong, .sidebar-account .account-copy span { max-width: 126px; }
+.account-login { width: 100%; }
 .nav { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .nav-group {
   font-size: 11px; font-weight: 700; color: var(--text-subtle);
@@ -93,6 +99,39 @@ button { border: 0; background: none; color: inherit; cursor: pointer; }
   color: var(--accent-strong); font-size: 13px; font-weight: 700; text-decoration: none;
 }
 .source-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-actions {
+  display: flex;
+  flex-direction: column; /* xếp dọc */
+  gap: 8px;
+}
+.data-actions.compact { margin-top: 14px; grid-template-columns: minmax(280px, 1fr) auto; align-items: start; }
+.data-action-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.data-action-primary {
+  display: flex;
+  gap: 8px;
+}
+.data-reset-button {
+  margin-left: auto;
+}
+.import-link-form {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start; /* 👈 căn trái */
+}
+.import-link-input {
+  min-width: 250px;
+}
+.data-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.data-actions .import-link-form { justify-content: stretch; min-width: 0; }
+.data-actions .import-link-input { flex: 1; width: 100%; }
 .stat-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   padding: 20px; position: relative; overflow: hidden; min-width: 0;
@@ -220,6 +259,7 @@ tr:last-child td { border-bottom: 0; }
 
 @media (max-width: 1024px) {
   .charts-grid { grid-template-columns: 1fr; }
+  .data-actions.compact { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }

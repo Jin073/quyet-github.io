@@ -6,9 +6,19 @@ import { Panel } from '../../components/ui/Panel.jsx';
 import { StatCard } from '../../components/ui/StatCard.jsx';
 import { assetTotals, categoryBreakdown, investmentTotals, monthlyTotals, transactionTotals } from '../../lib/finance.js';
 import { formatDate, formatMoney } from '../../lib/formatters.js';
+import { DataActions } from '../settings/DataActions.jsx';
 import { TransactionCells } from '../transactions/TransactionCells.jsx';
 
-export function DashboardView({ data, currency, goTo, onSaveImportSource }) {
+export function DashboardView({
+  data,
+  currency,
+  goTo,
+  onExport,
+  onImport,
+  onImportUrl,
+  onReset,
+  onSaveImportSource,
+}) {
   const totals = transactionTotals(data.transactions);
   const assets = assetTotals(data.assets);
   const investments = investmentTotals(data.investments);
@@ -41,6 +51,13 @@ export function DashboardView({ data, currency, goTo, onSaveImportSource }) {
             <span>{importSource.link || 'Local demo data'}</span>
           </div>
         )}
+        <DataActions
+          onExport={onExport}
+          onImport={onImport}
+          onImportUrl={onImportUrl}
+          onReset={onReset}
+          compact
+        />
       </Panel>
 
       <div className="summary-grid">
