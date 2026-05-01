@@ -32,7 +32,7 @@ export async function importDataFromUrl(url) {
   if (!importSource) throw new Error('Enter an Excel file link');
 
   if (importSource.provider === 'google_sheets') {
-    return importGoogleSpreadsheet(importSource);
+    return importGoogleSpreadsheet(importSource, { preferPublic: true });
   }
 
   if (importSource.provider === 'google_drive') {
@@ -58,7 +58,12 @@ export async function importDataFromUrl(url) {
   });
 }
 
-async function importGoogleSpreadsheet(importSource) {
+async function importGoogleSpreadsheet(importSource, options = {}) {
+  if (options.preferPublic) {
+    const publicImport = await tryImportPublicExcelUrl(importSource);
+    if (publicImport) return publicImport;
+  }
+
   const token = getRequiredGoogleAccessToken('Sign in with Google before importing a private Google Sheet link');
   const params = new URLSearchParams({
     majorDimension: 'ROWS',
@@ -98,6 +103,28 @@ async function importGoogleSpreadsheet(importSource) {
     fileId: importSource.fileId || '',
     importedAt: new Date().toISOString(),
   });
+}
+
+async function tryImportPublicExcelUrl(importSource) {
+  try {
+    const response = await fetch(importSource.downloadUrl);
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) return null;
+
+    const imported = importStateFromExcelBuffer(await response.arrayBuffer());
+    return withImportSource(imported, {
+      method: 'link',
+      link: importSource.originalUrl,
+      downloadUrl: importSource.downloadUrl,
+      provider: importSource.provider,
+      fileId: importSource.fileId || '',
+      importedAt: new Date().toISOString(),
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function importGoogleDriveFile(importSource, token = getRequiredGoogleAccessToken('Sign in with Google before importing a private Google Drive file')) {
