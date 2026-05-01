@@ -5,8 +5,11 @@ import {
   exportStateToSpreadsheetRows,
   importStateFromExcel,
   importStateFromExcelBuffer,
+  importStateFromSpreadsheetValues,
 } from '../../lib/excel.js';
 import { INITIAL_STATE } from '../../lib/constants.js';
+
+const GOOGLE_SHEET_NAMES = ['Transactions', 'Categories', 'Assets', 'Investments', 'Snapshots', 'Settings'];
 
 export function exportDataToExcel(state) {
   exportStateToExcel(state);
@@ -28,6 +31,14 @@ export async function importDataFromUrl(url) {
   const importSource = normalizeExcelImportUrl(url);
   if (!importSource) throw new Error('Enter an Excel file link');
 
+  if (importSource.provider === 'google_sheets') {
+    return importGoogleSpreadsheet(importSource);
+  }
+
+  if (importSource.provider === 'google_drive') {
+    return importGoogleDriveFile(importSource);
+  }
+
   const response = await fetch(importSource.downloadUrl);
   if (!response.ok) throw new Error(`Download failed (${response.status})`);
 
@@ -45,6 +56,106 @@ export async function importDataFromUrl(url) {
     fileId: importSource.fileId || '',
     importedAt: new Date().toISOString(),
   });
+}
+
+async function importGoogleSpreadsheet(importSource) {
+  const token = getRequiredGoogleAccessToken('Sign in with Google before importing a private Google Sheet link');
+  const params = new URLSearchParams({
+    majorDimension: 'ROWS',
+    valueRenderOption: 'UNFORMATTED_VALUE',
+    dateTimeRenderOption: 'FORMATTED_STRING',
+  });
+
+  GOOGLE_SHEET_NAMES.forEach((name) => params.append('ranges', name));
+
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(importSource.fileId)}/values:batchGet?${params}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const detail = payload.error?.message || `Google Sheets import failed (${response.status})`;
+    if (isOfficeFileSpreadsheetError(detail)) {
+      return importGoogleDriveFile({ ...importSource, provider: 'google_drive' }, token);
+    }
+    throw new Error(detail);
+  }
+
+  const sheetValues = Object.fromEntries(
+    (payload.valueRanges || []).map((range) => [range.range.split('!')[0].replace(/^'|'$/g, ''), range.values || []]),
+  );
+  const imported = importStateFromSpreadsheetValues(sheetValues);
+
+  return withImportSource(imported, {
+    method: 'link',
+    link: importSource.originalUrl,
+    provider: importSource.provider,
+    fileId: importSource.fileId || '',
+    importedAt: new Date().toISOString(),
+  });
+}
+
+async function importGoogleDriveFile(importSource, token = getRequiredGoogleAccessToken('Sign in with Google before importing a private Google Drive file')) {
+  const metadata = await fetchGoogleDriveFileMetadata(importSource.fileId, token);
+
+  if (metadata.mimeType === 'application/vnd.google-apps.spreadsheet') {
+    return importGoogleSpreadsheet({ ...importSource, provider: 'google_sheets' });
+  }
+
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(importSource.fileId)}?alt=media`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await readGoogleApiError(response);
+    throw new Error(detail || `Google Drive download failed (${response.status})`);
+  }
+
+  const imported = importStateFromExcelBuffer(await response.arrayBuffer());
+  return withImportSource(imported, {
+    method: 'link',
+    link: importSource.originalUrl,
+    provider: 'google_drive',
+    fileId: importSource.fileId || '',
+    importedAt: new Date().toISOString(),
+  });
+}
+
+async function fetchGoogleDriveFileMetadata(fileId, token) {
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id%2Cname%2CmimeType`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await readGoogleApiError(response);
+    throw new Error(detail || `Google Drive metadata failed (${response.status})`);
+  }
+
+  return response.json();
+}
+
+async function readGoogleApiError(response) {
+  const payload = await response.clone().json().catch(() => null);
+  return payload?.error?.message || payload?.error_description || response.statusText;
+}
+
+function isOfficeFileSpreadsheetError(message) {
+  return /office file/i.test(message) || /not supported for this document/i.test(message);
 }
 
 export async function overwriteImportedLink(state) {
@@ -190,9 +301,9 @@ async function overwriteUrl(url, workbookBytes) {
   }
 }
 
-function getRequiredGoogleAccessToken() {
+function getRequiredGoogleAccessToken(message = 'Sign in with Google before saving to Google Drive or Sheets') {
   const token = getGoogleAccessToken();
-  if (!token) throw new Error('Sign in with Google before saving to Google Drive or Sheets');
+  if (!token) throw new Error(message);
   return token;
 }
 

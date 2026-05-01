@@ -95,6 +95,21 @@ export function importStateFromExcelBuffer(buffer) {
   };
 }
 
+export function importStateFromSpreadsheetValues(sheetValues) {
+  return {
+    ...INITIAL_STATE,
+    transactions: rowsFromValues(sheetValues[SHEETS.transactions], HEADERS.transactions).map(normalizeTransaction),
+    categories: rowsFromValues(sheetValues[SHEETS.categories], HEADERS.categories).map(normalizeCategory),
+    assets: rowsFromValues(sheetValues[SHEETS.assets], HEADERS.assets).map(normalizeAsset),
+    investments: rowsFromValues(sheetValues[SHEETS.investments], HEADERS.investments).map(normalizeInvestment),
+    snapshots: rowsFromValues(sheetValues[SHEETS.snapshots], HEADERS.snapshots).map(normalizeSnapshot),
+    settings: {
+      ...INITIAL_STATE.settings,
+      ...(rowsFromValues(sheetValues[SHEETS.settings], HEADERS.settings)[0] || {}),
+    },
+  };
+}
+
 function appendSheet(workbook, name, headers, rows) {
   const sheetRows = rows.map((row) =>
     headers.reduce((out, header) => {
@@ -115,6 +130,20 @@ function createSheetRows(name, headers, rows) {
       ...rows.map((row) => headers.map((header) => row[header] ?? '')),
     ],
   };
+}
+
+function rowsFromValues(values = [], fallbackHeaders = []) {
+  const [headerRow = fallbackHeaders, ...rows] = values;
+  const headers = headerRow.length ? headerRow.map(asString) : fallbackHeaders;
+
+  return rows
+    .filter((row) => row.some((value) => asString(value)))
+    .map((row) =>
+      headers.reduce((out, header, index) => {
+        if (header) out[header] = row[index] ?? '';
+        return out;
+      }, {}),
+    );
 }
 
 function readSheet(workbook, name) {
