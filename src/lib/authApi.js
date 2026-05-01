@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const GOOGLE_ACCESS_TOKEN_KEY = 'finova_google_access_token';
 const GOOGLE_OAUTH_SCOPES = [
   'openid',

@@ -27,6 +27,7 @@ import { createDemoState } from '../lib/sampleData.js';
 import { filterTransactions } from '../lib/finance.js';
 import { uid } from '../lib/formatters.js';
 import {
+  API_BASE_URL,
   fetchGoogleUser,
   getGoogleAccessToken,
   logoutGoogle,
@@ -423,20 +424,36 @@ function normalizeExcelImportUrl(value) {
 
 async function overwriteImportedLink(state) {
   const source = state.importSource;
+  const token = getGoogleAccessToken();
 
   if (source.provider === 'google_sheets') {
-    await overwriteGoogleSpreadsheet(source.fileId, state);
-    return;
+    const metadataResponse = await fetch(
+      `${API_BASE_URL}/auth/google/drive/files/${encodeURIComponent(source.fileId)}/metadata`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    const metadata = await metadataResponse.json().catch(() => ({}));
+
+    if (!metadataResponse.ok) {
+      throw new Error(
+        `Google Drive metadata failed (${metadataResponse.status})${metadata.detail ? `: ${metadata.detail}` : ''}`,
+      );
+    }
+
+    if (metadata.is_google_sheet) {
+      await overwriteGoogleSpreadsheet(source.fileId, state);
+      return;
+    }
+
+    if (metadata.is_excel_file) {
+      const workbookBytes = exportStateToExcelBuffer(state);
+      await overwriteGoogleDriveFile(source.fileId, workbookBytes);
+      return;
+    }
+
+    throw new Error(`Unsupported Google file type: ${metadata.mime_type}`);
   }
 
-  const workbookBytes = exportStateToExcelBuffer(state);
-
-  if (source.provider === 'google_drive') {
-    await overwriteGoogleDriveFile(source.fileId, workbookBytes);
-    return;
-  }
-
-  await overwriteUrl(source.link, workbookBytes);
 }
 
 async function overwriteGoogleSpreadsheet(spreadsheetId, state) {
@@ -444,120 +461,29 @@ async function overwriteGoogleSpreadsheet(spreadsheetId, state) {
   if (!token) throw new Error('Sign in with Google before saving to Sheets');
 
   const sheets = exportStateToSpreadsheetRows(state);
-  const metadataResponse = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties.title`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+
+  const response = await fetch(apiUrl(`/auth/google/sheets/${encodeURIComponent(spreadsheetId)}/overwrite`), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
     },
-  );
+    body: JSON.stringify({
+      value_input_option: 'RAW',
+      sheets,
+    }),
+  });
 
-  if (!metadataResponse.ok) {
-    await throwGoogleApiError(metadataResponse, 'Google Sheets metadata');
+  if (!response.ok) {
+    throw new Error(`Backend rejected Google Sheets overwrite (${response.status})`);
   }
-
-  const metadata = await metadataResponse.json();
-  const existingTitles = new Set((metadata.sheets || []).map((sheet) => sheet.properties?.title).filter(Boolean));
-  const missingSheets = sheets.filter((sheet) => !existingTitles.has(sheet.name));
-
-  if (missingSheets.length > 0) {
-    const addResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: missingSheets.map((sheet) => ({ addSheet: { properties: { title: sheet.name } } })),
-        }),
-      },
-    );
-
-    if (!addResponse.ok) {
-      await throwGoogleApiError(addResponse, 'Google Sheets add sheet');
-    }
-  }
-
-  const clearResponse = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchClear`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ranges: sheets.map((sheet) => quoteSheetRange(sheet.name)),
-      }),
-    },
-  );
-
-  if (!clearResponse.ok) {
-    await throwGoogleApiError(clearResponse, 'Google Sheets clear');
-  }
-
-  const updateResponse = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        valueInputOption: 'RAW',
-        data: sheets.map((sheet) => ({
-          range: `${quoteSheetName(sheet.name)}!A1`,
-          values: sheet.values,
-        })),
-      }),
-    },
-  );
-
-  if (!updateResponse.ok) {
-    await throwGoogleApiError(updateResponse, 'Google Sheets update');
-  }
-}
-
-async function throwGoogleApiError(response, action) {
-  let detail = '';
-
-  try {
-    const payload = await response.json();
-    detail = payload.error?.message || payload.error_description || '';
-  } catch {
-    detail = await response.text().catch(() => '');
-  }
-
-  if (response.status === 403) {
-    throw new Error(
-      `${action} failed: Google denied access. Reconnect Google and make sure the account can edit this Sheet and the backend OAuth includes the spreadsheets scope.`,
-    );
-  }
-
-  if (response.status === 401) {
-    throw new Error(`${action} failed: Google session expired. Sign in with Google again.`);
-  }
-
-  throw new Error(`${action} failed (${response.status})${detail ? `: ${detail}` : ''}`);
-}
-
-function quoteSheetName(name) {
-  return `'${name.replaceAll("'", "''")}'`;
-}
-
-function quoteSheetRange(name) {
-  return quoteSheetName(name);
 }
 
 async function overwriteGoogleDriveFile(fileId, workbookBytes) {
   const token = getGoogleAccessToken();
   if (!token) throw new Error('Sign in with Google before saving to Drive');
 
-  const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+  const response = await fetch(apiUrl(`/auth/google/drive/files/${encodeURIComponent(fileId)}`), {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -567,8 +493,12 @@ async function overwriteGoogleDriveFile(fileId, workbookBytes) {
   });
 
   if (!response.ok) {
-    throw new Error(`Google Drive rejected the overwrite (${response.status})`);
+    throw new Error(`Backend rejected Google Drive overwrite (${response.status})`);
   }
+}
+
+function apiUrl(path) {
+  return new URL(path, API_BASE_URL).toString();
 }
 
 async function overwriteUrl(url, workbookBytes) {
