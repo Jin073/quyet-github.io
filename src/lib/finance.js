@@ -1,6 +1,7 @@
 import { ASSET_TYPES, INVESTMENT_TYPES } from './constants.js';
 import { monthKey } from './formatters.js';
 
+// Transaction analytics
 export function transactionTotals(transactions) {
   return transactions.reduce(
     (totals, item) => {
@@ -62,6 +63,7 @@ export function categoryBreakdown(transactions, categories, type = 'expense') {
     .sort((a, b) => b.value - a.value);
 }
 
+// Portfolio analytics
 export function assetTotals(assets) {
   const total = assets.reduce((sum, item) => sum + Number(item.value || 0), 0);
   const liquid = assets
@@ -93,6 +95,7 @@ export function groupByType(items, metadata, valueKey) {
     .sort((a, b) => b.value - a.value);
 }
 
+// Growth analytics
 export function growthStats(snapshots) {
   const sorted = [...snapshots].sort((a, b) => a.month.localeCompare(b.month));
   if (sorted.length < 2) {

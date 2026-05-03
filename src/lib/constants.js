@@ -1,5 +1,6 @@
 export const STORAGE_KEY = 'finova_state_v2';
 
+// Theme settings
 export const ACCENTS = ['indigo', 'emerald', 'rose', 'amber'];
 
 export const SWATCHES = [
@@ -9,6 +10,7 @@ export const SWATCHES = [
   '#0ea5e9', '#3b82f6', '#64748b', '#78716c',
 ];
 
+// Asset tracking
 export const ASSET_TYPES = {
   cash: { label: 'Cash', color: '#22c55e', liquid: true },
   bank: { label: 'Bank Account', color: '#3b82f6', liquid: true },
@@ -18,6 +20,7 @@ export const ASSET_TYPES = {
   other: { label: 'Other', color: '#64748b', liquid: false },
 };
 
+// Investment tracking
 export const INVESTMENT_TYPES = {
   stocks: { label: 'Stocks', color: '#3b82f6' },
   crypto: { label: 'Crypto', color: '#f59e0b' },
@@ -27,6 +30,7 @@ export const INVESTMENT_TYPES = {
   other: { label: 'Other', color: '#64748b' },
 };
 
+// Transaction categories
 export const DEFAULT_CATEGORIES = [
   { id: 'cat_1', name: 'Food & Dining', type: 'expense', color: '#f97316', budget: 0 },
   { id: 'cat_2', name: 'Transport', type: 'expense', color: '#0ea5e9', budget: 0 },
@@ -42,6 +46,7 @@ export const DEFAULT_CATEGORIES = [
   { id: 'cat_12', name: 'Other', type: 'both', color: '#78716c', budget: 0 },
 ];
 
+// Application state
 export const INITIAL_STATE = {
   transactions: [],
   categories: DEFAULT_CATEGORIES,

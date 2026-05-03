@@ -1,3 +1,4 @@
+// ID and date keys
 export function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;
 }
@@ -19,6 +20,7 @@ export function monthKey(date) {
   return String(date || '').slice(0, 7);
 }
 
+// Display formatters
 export function formatMoney(value, currency = '$') {
   const number = Number(value) || 0;
   const sign = number < 0 ? '-' : '';

@@ -1,4 +1,6 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+// Google OAuth configuration
 const GOOGLE_ACCESS_TOKEN_KEY = 'finova_google_access_token';
 const GOOGLE_OAUTH_SCOPES = [
   'openid',
@@ -9,6 +11,7 @@ const GOOGLE_OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
 ];
 
+// OAuth redirects
 export function redirectToGoogleOAuth() {
   const returnTo = window.location.href;
   const url = new URL('/auth/google/login', API_BASE_URL);
@@ -18,6 +21,7 @@ export function redirectToGoogleOAuth() {
   window.location.assign(url.toString());
 }
 
+// OAuth callback state
 export function readGoogleTokenFromRedirect() {
   const params = new URLSearchParams(window.location.search);
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -37,6 +41,7 @@ export function readGoogleTokenFromRedirect() {
   return getGoogleAccessToken();
 }
 
+// Google session API
 export async function fetchGoogleUser(accessToken = getGoogleAccessToken()) {
   if (!accessToken) return null;
 
@@ -66,6 +71,7 @@ export async function logoutGoogle(accessToken = getGoogleAccessToken()) {
   clearGoogleAccessToken();
 }
 
+// Token storage
 export function getGoogleAccessToken() {
   return localStorage.getItem(GOOGLE_ACCESS_TOKEN_KEY);
 }
@@ -78,6 +84,7 @@ function clearGoogleAccessToken() {
   localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
 }
 
+// URL cleanup
 function cleanAuthParamsFromUrl() {
   const cleanUrl = `${window.location.origin}${window.location.pathname}`;
   window.history.replaceState({}, document.title, cleanUrl);

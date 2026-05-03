@@ -11,6 +11,7 @@ import { INITIAL_STATE } from '../../lib/constants.js';
 
 const GOOGLE_SHEET_NAMES = ['Transactions', 'Categories', 'Assets', 'Investments', 'Snapshots', 'Settings'];
 
+// Excel file actions
 export function exportDataToExcel(state) {
   exportStateToExcel(state);
 }
@@ -27,6 +28,7 @@ export async function importDataFromFile(file) {
   });
 }
 
+// Remote link imports
 export async function importDataFromUrl(url) {
   const importSource = normalizeExcelImportUrl(url);
   if (!importSource) throw new Error('Enter an Excel file link');
@@ -58,6 +60,7 @@ export async function importDataFromUrl(url) {
   });
 }
 
+// Google import providers
 async function importGoogleSpreadsheet(importSource, options = {}) {
   if (options.preferPublic) {
     const publicImport = await tryImportPublicExcelUrl(importSource);
@@ -158,33 +161,7 @@ async function importGoogleDriveFile(importSource, token = getRequiredGoogleAcce
   });
 }
 
-async function fetchGoogleDriveFileMetadata(fileId, token) {
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id%2Cname%2CmimeType`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const detail = await readGoogleApiError(response);
-    throw new Error(detail || `Google Drive metadata failed (${response.status})`);
-  }
-
-  return response.json();
-}
-
-async function readGoogleApiError(response) {
-  const payload = await response.clone().json().catch(() => null);
-  return payload?.error?.message || payload?.error_description || response.statusText;
-}
-
-function isOfficeFileSpreadsheetError(message) {
-  return /office file/i.test(message) || /not supported for this document/i.test(message);
-}
-
+// Save back to the imported source
 export async function overwriteImportedLink(state) {
   const source = state.importSource;
   if (source?.method !== 'link') throw new Error('Import from a link before saving back');
@@ -197,6 +174,71 @@ export async function overwriteImportedLink(state) {
   await overwriteUrl(source.link, exportStateToExcelBuffer(state));
 }
 
+async function overwriteGoogleFile(fileId, state) {
+  const token = getRequiredGoogleAccessToken();
+  const metadata = await fetchGoogleDriveMetadata(fileId, token);
+
+  if (metadata.is_google_sheet) {
+    await overwriteGoogleSpreadsheet(fileId, state, token);
+    return;
+  }
+
+  if (metadata.is_excel_file) {
+    await overwriteGoogleDriveFile(fileId, exportStateToExcelBuffer(state), token);
+    return;
+  }
+
+  throw new Error(`Unsupported Google file type: ${metadata.mime_type || 'unknown'}`);
+}
+
+async function overwriteGoogleSpreadsheet(spreadsheetId, state, token = getRequiredGoogleAccessToken()) {
+  const response = await fetch(apiUrl(`/auth/google/sheets/${encodeURIComponent(spreadsheetId)}/overwrite`), {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      value_input_option: 'RAW',
+      sheets: exportStateToSpreadsheetRows(state),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend rejected Google Sheets overwrite (${response.status})`);
+  }
+}
+
+async function overwriteGoogleDriveFile(fileId, workbookBytes, token = getRequiredGoogleAccessToken()) {
+  const response = await fetch(apiUrl(`/auth/google/drive/files/${encodeURIComponent(fileId)}`), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    },
+    body: workbookBytes,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Backend rejected Google Drive overwrite (${response.status})`);
+  }
+}
+
+async function overwriteUrl(url, workbookBytes) {
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    },
+    body: workbookBytes,
+  });
+
+  if (!response.ok) {
+    throw new Error(`The link does not allow overwrite (${response.status})`);
+  }
+}
+
+// Import source normalization
 function withImportSource(imported, importSource) {
   return {
     ...INITIAL_STATE,
@@ -249,21 +291,32 @@ function normalizeExcelImportUrl(value) {
   }
 }
 
-async function overwriteGoogleFile(fileId, state) {
-  const token = getRequiredGoogleAccessToken();
-  const metadata = await fetchGoogleDriveMetadata(fileId, token);
+// Google API helpers
+async function fetchGoogleDriveFileMetadata(fileId, token) {
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id%2Cname%2CmimeType`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
 
-  if (metadata.is_google_sheet) {
-    await overwriteGoogleSpreadsheet(fileId, state, token);
-    return;
+  if (!response.ok) {
+    const detail = await readGoogleApiError(response);
+    throw new Error(detail || `Google Drive metadata failed (${response.status})`);
   }
 
-  if (metadata.is_excel_file) {
-    await overwriteGoogleDriveFile(fileId, exportStateToExcelBuffer(state), token);
-    return;
-  }
+  return response.json();
+}
 
-  throw new Error(`Unsupported Google file type: ${metadata.mime_type || 'unknown'}`);
+async function readGoogleApiError(response) {
+  const payload = await response.clone().json().catch(() => null);
+  return payload?.error?.message || payload?.error_description || response.statusText;
+}
+
+function isOfficeFileSpreadsheetError(message) {
+  return /office file/i.test(message) || /not supported for this document/i.test(message);
 }
 
 async function fetchGoogleDriveMetadata(fileId, token) {
@@ -279,53 +332,6 @@ async function fetchGoogleDriveMetadata(fileId, token) {
   }
 
   return payload;
-}
-
-async function overwriteGoogleSpreadsheet(spreadsheetId, state, token = getRequiredGoogleAccessToken()) {
-  const response = await fetch(apiUrl(`/auth/google/sheets/${encodeURIComponent(spreadsheetId)}/overwrite`), {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      value_input_option: 'RAW',
-      sheets: exportStateToSpreadsheetRows(state),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend rejected Google Sheets overwrite (${response.status})`);
-  }
-}
-
-async function overwriteGoogleDriveFile(fileId, workbookBytes, token = getRequiredGoogleAccessToken()) {
-  const response = await fetch(apiUrl(`/auth/google/drive/files/${encodeURIComponent(fileId)}`), {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    },
-    body: workbookBytes,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend rejected Google Drive overwrite (${response.status})`);
-  }
-}
-
-async function overwriteUrl(url, workbookBytes) {
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    },
-    body: workbookBytes,
-  });
-
-  if (!response.ok) {
-    throw new Error(`The link does not allow overwrite (${response.status})`);
-  }
 }
 
 function getRequiredGoogleAccessToken(message = 'Sign in with Google before saving to Google Drive or Sheets') {

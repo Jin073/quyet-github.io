@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { INITIAL_STATE } from './constants.js';
 import { todayISO } from './formatters.js';
 
+// Workbook schema
 const SHEETS = {
   transactions: 'Transactions',
   categories: 'Categories',
@@ -20,6 +21,7 @@ const HEADERS = {
   settings: ['theme', 'accent', 'currency'],
 };
 
+// Export adapters
 export function exportStateToExcel(state) {
   const workbook = createStateWorkbook(state);
   XLSX.writeFile(workbook, `finova-backup-${todayISO()}.xlsx`);
@@ -43,6 +45,7 @@ export function exportStateToSpreadsheetRows(state) {
   ];
 }
 
+// Workbook builders
 function createStateWorkbook(state) {
   const workbookState = normalizeIdsForWorkbook(state);
   const workbook = XLSX.utils.book_new();
@@ -73,6 +76,7 @@ function normalizeIdsForWorkbook(state) {
   };
 }
 
+// Import adapters
 export async function importStateFromExcel(file) {
   const buffer = await file.arrayBuffer();
   return importStateFromExcelBuffer(buffer);
@@ -110,6 +114,7 @@ export function importStateFromSpreadsheetValues(sheetValues) {
   };
 }
 
+// Sheet readers and writers
 function appendSheet(workbook, name, headers, rows) {
   const sheetRows = rows.map((row) =>
     headers.reduce((out, header) => {
@@ -152,6 +157,7 @@ function readSheet(workbook, name) {
   return XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 }
 
+// Domain row normalizers
 function normalizeTransaction(row) {
   return {
     id: asString(row.id),
@@ -206,6 +212,7 @@ function normalizeSnapshot(row) {
   };
 }
 
+// Cell value coercion
 function asString(value) {
   return String(value ?? '').trim();
 }
